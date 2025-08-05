@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models # Mount models directory to access trained model
+    networks:
+      - app-network
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: streamlit_app/Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://fastapi:8000 # This points to the FastAPI service within the Docker network
+    depends_on:
+      - fastapi
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
