@@ -1,0 +1,71 @@
+
+name: MLOps Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-train:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Start MLflow Tracking Server
+      run: |
+        docker-compose -f deployment/mlflow/docker-compose.yaml up -d
+
+    - name: Run Data Processing
+      run: |
+        python src/data/run_processing.py --input data/raw/house_data.csv --output data/processed/cleaned_house_data.csv
+
+    - name: Run Feature Engineering
+      run: |
+        python src/features/engineer.py --input data/processed/cleaned_house_data.csv --output data/processed/featured_house_data.csv --preprocessor models/trained/preprocessor.pkl
+
+    - name: Run Model Training
+      run: |
+        python src/models/train_model.py --config configs/model_config.yaml --data data/processed/featured_house_data.csv --models-dir models --mlflow-tracking-uri http://localhost:5000
+
+  build-and-push:
+    needs: build-and-train
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push FastAPI image
+      uses: docker/build-push-action@v3
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: ghcr.io/${{ github.repository }}/fastapi:${{ github.sha }}
+
+    - name: Build and push Streamlit image
+      uses: docker/build-push-action@v3
+      with:
+        context: ./streamlit_app
+        file: ./streamlit_app/Dockerfile
+        push: true
+        tags: ghcr.io/${{ github.repository }}/streamlit:${{ github.sha }}
